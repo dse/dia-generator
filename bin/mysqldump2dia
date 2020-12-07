@@ -16,11 +16,36 @@ print $generator->generateXML();
 package Dia::Generator {
     use Moo;
     INIT {
-        has 'parser'      => (is => 'rw');
+        has 'parser' => (is => 'rw');
+
         has 'tableNames'  => (is => 'rw', default => sub { return []; });
+        has 'tableNameHash' => (is => 'rw', default => sub { return {}; });
         has 'tableFields' => (is => 'rw', default => sub { return {}; });
-        has 'currentTableName' => (is => 'rw');
+        has 'tableFieldHash' => (is => 'rw', default => sub { return {}; });
         has 'references' => (is => 'rw', default => sub { return []; });
+        has 'referenceHash' => (is => 'rw', default => sub { return {}; });
+        has 'currentTableName' => (is => 'rw');
+        has 'currentFieldIndex' => (is => 'rw');
+        has 'objectIdCounter' => (is => 'rw', default => 0);
+        has 'tableObjectId'   => (is => 'rw', default => sub { return {}; });
+
+        # positioning
+        has 'left' => (is => 'rw');
+        has 'top' => (is => 'rw');
+        has 'x1' => (is => 'rw');
+        has 'y1' => (is => 'rw');
+        has 'x2' => (is => 'rw');
+        has 'y2' => (is => 'rw');
+        has 'x3' => (is => 'rw');
+        has 'y3' => (is => 'rw');
+        has 'width' => (is => 'rw');
+        has 'height' => (is => 'rw');
+        has 'xinc' => (is => 'rw');
+        has 'yinc' => (is => 'rw');
+
+        has 'rowNumber'    => (is => 'rw', default => 0);
+        has 'columnNumber' => (is => 'rw', default => 0);
+        has 'columnsPerRow' => (is => 'rw', default => 11);
     }
     sub parseMySQLDump {
         my ($self) = @_;
@@ -41,9 +66,20 @@ package Dia::Generator {
         my ($self, $tableName) = @_;
         $self->currentTableName($tableName);
         if (!exists $self->tableFields->{$tableName}) {
+            my $index = scalar @{$self->tableNames};
+            my $fields = [];
+            my $fieldHash = {};
+            my $hash = {
+                        index => $index,
+                        fields => $fields,
+                        fieldHash => $fieldHash,
+                       };
             push(@{$self->tableNames}, $tableName);
-            $self->tableFields->{$tableName} = [];
+            $self->tableNameHash->{$tableName} = $hash;
+            $self->tableFields->{$tableName} = $fields;
+            $self->tableFieldHash->{$tableName} = $fieldHash;
         }
+        $self->currentFieldIndex(scalar @{$self->tableFields->{$tableName}});
     }
     sub endTable {
         my ($self) = @_;
@@ -51,30 +87,42 @@ package Dia::Generator {
     }
     sub addField {
         my ($self, $fieldName, $fieldType) = @_;
-        if ($self->currentTableName) {
-            my $field = {
-                         name => $fieldName,
-                         type => $fieldType
-                        };
-            push(@{$self->tableFields->{$self->currentTableName}}, $field);
+        my $tableName = $self->currentTableName;
+        if (!$tableName) {
+            return;
         }
+        my $index = $self->currentFieldIndex;
+        my $field = {
+                     name => $fieldName,
+                     type => $fieldType,
+                     index => $index,
+                    };
+        push(@{$self->tableFields->{$tableName}}, $field);
+        $self->tableFieldHash->{$tableName}->{$fieldName} = $field;
+        $self->currentFieldIndex($index + 1);
     }
     sub addReference {
+        warn("addReference\n");
         my ($self, %args) = @_;
         my $constraintName = $args{constraintName};
         my $foreignKey = $args{foreignKey};
         my $referencesTableName = $args{referencesTableName};
         my $referencesFieldName = $args{referencesFieldName};
-
-        my $tableName = $self->currentTableName;
-        if ($tableName) {
-            $self->references->{$tableName} //= {};
-            my $reference = {
-                             tableName => $referencesTableName,
-                             fieldName => $referencesFieldName
-                            };
-            $self->references->{$tableName}->{$foreignKey} = $reference;
+        my $tableName = $args{tableName} // $self->currentTableName;
+        if (!$tableName) {
+            warn("not adding reference\n");
+            return;
         }
+        $self->referenceHash->{$tableName} //= {};
+        my $hash = {
+                    tableName => $tableName,
+                    constraintName => $constraintName,
+                    foreignKey => $foreignKey,
+                    referencesTableName => $referencesTableName,
+                    referencesFieldName => $referencesFieldName
+                   };
+        push(@{$self->references}, $hash);
+        $self->referenceHash->{$tableName}->{$foreignKey} = $hash;
     }
     sub getHeader {
 	my $self = shift;
@@ -155,21 +203,28 @@ END
 END
 	return $footer;
     }
+    sub nextObjectId {
+        my $self = shift;
+        my $id = 'O' . $self->objectIdCounter;
+        $self->objectIdCounter($self->objectIdCounter + 1);
+        return $id;
+    }
     sub getObjHeader {
 	my $self = shift;
-	my $nome = shift;
+	my $tableName = shift;
 
-        my $x1 = $self->x1;
-        my $x2 = $self->x2;
-        my $x3 = $self->x3;
-        my $y1 = $self->y1;
-        my $y2 = $self->y2;
-        my $y3 = $self->y3;
+        my $tableIndex = $self->tableNameHash->{$tableName}->{index};
+
+        my ($x1, $y1, $x2, $y2, $x3, $y3) = $self->getPosition($tableIndex);
+
         my $width = $self->width;
         my $height = $self->height;
 
+        my $id = $self->nextObjectId;
+        $self->tableObjectId->{$tableName} = $id;
+
 	my $header = <<END;
-    <dia:object type="UML - Class" version="0" id="O0">
+    <dia:object type="UML - Class" version="0" id="${id}">
       <dia:attribute name="obj_pos">
         <dia:point val="$x1,$y1"/>
       </dia:attribute>
@@ -186,7 +241,7 @@ END
         <dia:real val="$height"/>
       </dia:attribute>
       <dia:attribute name="name">
-        <dia:string>#$nome#</dia:string>
+        <dia:string>#${tableName}#</dia:string>
       </dia:attribute>
       <dia:attribute name="stereotype">
         <dia:string>##</dia:string>
@@ -292,14 +347,14 @@ END
     }
     sub getAttrib {
 	my $self = shift;
-	my ($nome,$tipo) = @_;
+	my ($fieldName, $fieldType) = @_;
 	my $attr = <<END;
         <dia:composite type="umlattribute">
           <dia:attribute name="name">
-            <dia:string>#$nome#</dia:string>
+            <dia:string>#${fieldName}#</dia:string>
           </dia:attribute>
           <dia:attribute name="type">
-            <dia:string>#$tipo#</dia:string>
+            <dia:string>#${fieldType}#</dia:string>
           </dia:attribute>
           <dia:attribute name="value">
             <dia:string>##</dia:string>
@@ -320,19 +375,101 @@ END
 END
 	return $attr;
     }
-    INIT {
-        has 'left' => (is => 'rw');
-        has 'top' => (is => 'rw');
-        has 'x1' => (is => 'rw');
-        has 'y1' => (is => 'rw');
-        has 'x2' => (is => 'rw');
-        has 'y2' => (is => 'rw');
-        has 'x3' => (is => 'rw');
-        has 'y3' => (is => 'rw');
-        has 'width' => (is => 'rw');
-        has 'height' => (is => 'rw');
-        has 'xinc' => (is => 'rw');
-        has 'yinc' => (is => 'rw');
+    sub generateReferenceXML {
+        my ($self, %args) = @_;
+
+        my $tableName = $args{tableName};
+        my $constraintName = $args{constraintName};
+        my $foreignKey = $args{foreignKey};
+        my $referencesTableName = $args{referencesTableName};
+        my $referencesFieldName = $args{referencesFieldName};
+
+        my $obj_pos = '13.435,6.9';
+        my $obj_bb = '13.435,6.25;16,7.7';
+        my $orth_point_0 = '13.435,6.9';
+        my $orth_point_1 = '14.7175,6.9';
+        my $orth_point_2 = '14.7175,7.7';
+        my $orth_point_3 = '16,7.7';
+
+        my $from_id   = $self->tableObjectId->{$tableName};
+        my $to_id     = $self->tableObjectId->{$referencesTableName};
+        my $from_conn = $self->tableFieldHash->{$tableName}->{$foreignKey}->{index} * 2 + 9;
+        my $to_conn   = $self->tableFieldHash->{$referencesTableName}->{$referencesFieldName}->{index} * 2 + 8;
+
+        # adoptions id -> adoption_statuses adoption_id = O0, 9 => O1, 10
+        # adoptions recipient_id -> recipients id = O0, 17 => O23, 8
+
+        my $id = $self->nextObjectId;
+
+        my $xml = <<END;
+    <dia:object type="Database - Reference" version="0" id="${id}">
+      <dia:attribute name="obj_pos">
+        <dia:point val="${obj_pos}"/>
+      </dia:attribute>
+      <dia:attribute name="obj_bb">
+        <dia:rectangle val="${obj_bb}"/>
+      </dia:attribute>
+      <dia:attribute name="meta">
+        <dia:composite type="dict"/>
+      </dia:attribute>
+      <dia:attribute name="orth_points">
+        <dia:point val="${orth_point_0}"/>
+        <dia:point val="${orth_point_1}"/>
+        <dia:point val="${orth_point_2}"/>
+        <dia:point val="${orth_point_3}"/>
+      </dia:attribute>
+      <dia:attribute name="orth_orient">
+        <dia:enum val="0"/>
+        <dia:enum val="1"/>
+        <dia:enum val="0"/>
+      </dia:attribute>
+      <dia:attribute name="orth_autoroute">
+        <dia:boolean val="true"/>
+      </dia:attribute>
+      <dia:attribute name="text_colour">
+        <dia:color val="#000000"/>
+      </dia:attribute>
+      <dia:attribute name="line_colour">
+        <dia:color val="#000000"/>
+      </dia:attribute>
+      <dia:attribute name="line_width">
+        <dia:real val="0.1"/>
+      </dia:attribute>
+      <dia:attribute name="line_style">
+        <dia:enum val="0"/>
+        <dia:real val="1"/>
+      </dia:attribute>
+      <dia:attribute name="corner_radius">
+        <dia:real val="0"/>
+      </dia:attribute>
+      <dia:attribute name="end_arrow">
+        <dia:enum val="22"/>
+      </dia:attribute>
+      <dia:attribute name="end_arrow_length">
+        <dia:real val="0.5"/>
+      </dia:attribute>
+      <dia:attribute name="end_arrow_width">
+        <dia:real val="0.5"/>
+      </dia:attribute>
+      <dia:attribute name="start_point_desc">
+        <dia:string>#1#</dia:string>
+      </dia:attribute>
+      <dia:attribute name="end_point_desc">
+        <dia:string>#n#</dia:string>
+      </dia:attribute>
+      <dia:attribute name="normal_font">
+        <dia:font family="monospace" style="0" name="Courier"/>
+      </dia:attribute>
+      <dia:attribute name="normal_font_height">
+        <dia:real val="0.6"/>
+      </dia:attribute>
+      <dia:connections>
+        <dia:connection handle="0" to="${from_id}" connection="${from_conn}"/>
+        <dia:connection handle="1" to="${to_id}" connection="${to_conn}"/>
+      </dia:connections>
+    </dia:object>
+END
+        return $xml;
     }
     sub initPosition {
         my $self = shift;
@@ -362,6 +499,50 @@ END
             $self->y2($self->y2 + $self->yinc);
             $self->y3($self->y3 + $self->yinc);
         }
+
+        $self->columnNumber($self->columnNumber + 1);
+        if ($self->columnNumber > $self->columnsPerRow) {
+            $self->columnNumber($self->columnNumber - $self->columnsPerRow);
+            $self->rowNumber($self->rowNumber + 1);
+        }
+    }
+    use POSIX qw(floor);
+    use Scalar::Util qw(looks_like_number);
+    sub getRowColumnNumbers {
+        my ($self, $tableIndex) = @_;
+        my $rowNumber = floor($tableIndex / $self->columnsPerRow);
+        my $columnNumber = $tableIndex % $self->columnsPerRow;
+        return ($rowNumber, $columnNumber);
+    }
+    sub getPosition {
+        # $o->getPosition(<table number>);
+        # $o->getPosition(<row number>, <column number>);
+        my ($self) = @_;
+
+        my ($rowNumber, $columnNumber);
+        if (scalar @_ == 2) {
+            if (looks_like_number($_[1])) {
+                ($rowNumber, $columnNumber) = $self->getRowColumnNumbers($_[1]);
+            } else {
+                die("getPosition: single argument doesn't look like a number\n");
+            }
+        } elsif (scalar @_ == 3) {
+            if (looks_like_number($_[1]) && looks_like_number($_[2])) {
+                ($rowNumber, $columnNumber) = ($_[1], $_[2]);
+            } else {
+                die("getPosition: both arguments don't look like numbers\n");
+            }
+        } else {
+            die("getPosition: expects 1 or 2 arguments\n");
+        }
+
+        my $x1 = $self->left + $self->xinc * $columnNumber;
+        my $y1 = $self->top + $self->yinc * $rowNumber;
+        my $x2 = $x1 - 0.05;
+        my $y2 = $y1 - 0.05;
+        my $x3 = $x2 + $self->width + 0.1;
+        my $y3 = $y2 + $self->height + 0.1;
+        return ($x1, $y1, $x2, $y2, $x3, $y3);
     }
     sub generateXML {
         my ($self) = @_;
@@ -376,6 +557,9 @@ END
                 $xml .= $self->getAttrib($fieldName, $fieldType);
             }
             $xml .= $self->getObjFooter();
+        }
+        foreach my $reference (@{$self->references}) {
+            $xml .= $self->generateReferenceXML(%$reference);
         }
         $xml .= $self->getFooter();
         return $xml;
@@ -408,7 +592,7 @@ package Dia::Parse::MySQLDump {
                 $self->generator->addField($fieldName, $fieldType);
                 return;
             }
-            if (m{^\s+constraint\s*`(.*?)`\s*foreign\s+key\s\(`(.*?)`\)\s*references\s*`(.*?)`\s*\(`(.*?)`\)}) {
+            if (m{^\s+constraint\s*`(.*?)`\s*foreign\s+key\s\(`(.*?)`\)\s*references\s*`(.*?)`\s*\(`(.*?)`\)}i) {
                 my $constraintName = $1;
                 my $foreignKey = $2;
                 my $referencesTableName = $3;
