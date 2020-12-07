@@ -20,6 +20,7 @@ package Dia::Generator {
         has 'tableNames'  => (is => 'rw', default => sub { return []; });
         has 'tableFields' => (is => 'rw', default => sub { return {}; });
         has 'currentTableName' => (is => 'rw');
+        has 'references' => (is => 'rw', default => sub { return []; });
     }
     sub parseMySQLDump {
         my ($self) = @_;
@@ -56,6 +57,23 @@ package Dia::Generator {
                          type => $fieldType
                         };
             push(@{$self->tableFields->{$self->currentTableName}}, $field);
+        }
+    }
+    sub addReference {
+        my ($self, %args) = @_;
+        my $constraintName = $args{constraintName};
+        my $foreignKey = $args{foreignKey};
+        my $referencesTableName = $args{referencesTableName};
+        my $referencesFieldName = $args{referencesFieldName};
+
+        my $tableName = $self->currentTableName;
+        if ($tableName) {
+            $self->references->{$tableName} //= {};
+            my $reference = {
+                             tableName => $referencesTableName,
+                             fieldName => $referencesFieldName
+                            };
+            $self->references->{$tableName}->{$foreignKey} = $reference;
         }
     }
     sub getHeader {
@@ -342,6 +360,17 @@ package Dia::Parse::MySQLDump {
                 my $fieldName = $1;
                 my $fieldType = $2;
                 $self->generator->addField($fieldName, $fieldType);
+                return;
+            }
+            if (m{^\s+constraint\s*`(.*?)`\s*foreign\s+key\s\(`(.*?)`\)\s*references\s*`(.*?)`\s*\(`(.*?)`\)}) {
+                my $constraintName = $1;
+                my $foreignKey = $2;
+                my $referencesTableName = $3;
+                my $referencesFieldName = $4;
+                $self->generator->addReference(constraintName      => $constraintName,
+                                               foreignKey          => $foreignKey,
+                                               referencesTableName => $referencesTableName,
+                                               referencesFieldName => $referencesFieldName);
                 return;
             }
         }
