@@ -1,0 +1,352 @@
+#!/usr/bin/env perl
+use warnings;
+use strict;
+use v5.10.0;
+
+use GenDia;
+
+my $generator = Dia::Generator->new();
+$generator->parseMySQLDump();
+while (<>) {
+    $generator->parse($_);
+}
+
+print $generator->generateXML();
+
+package Dia::Generator {
+    use Moo;
+    INIT {
+        has 'parser'      => (is => 'rw');
+        has 'tableNames'  => (is => 'rw', default => sub { return []; });
+        has 'tableFields' => (is => 'rw', default => sub { return {}; });
+        has 'currentTableName' => (is => 'rw');
+    }
+    sub parseMySQLDump {
+        my ($self) = @_;
+        my $parser = Dia::Parse::MySQLDump->new();
+        $parser->generator($self);
+        $self->parser($parser);
+    }
+    sub parse {
+        my ($self, $line) = @_;
+        $self->parser->parse($line);
+    }
+    sub eof {
+        my ($self) = @_;
+        $self->parser->eof();
+        $self->parser(undef);
+    }
+    sub startTable {
+        my ($self, $tableName) = @_;
+        $self->currentTableName($tableName);
+        if (!exists $self->tableFields->{$tableName}) {
+            push(@{$self->tableNames}, $tableName);
+            $self->tableFields->{$tableName} = [];
+        }
+    }
+    sub endTable {
+        my ($self) = @_;
+        $self->currentTableName(undef);
+    }
+    sub addField {
+        my ($self, $fieldName, $fieldType) = @_;
+        if ($self->currentTableName) {
+            my $field = {
+                         name => $fieldName,
+                         type => $fieldType
+                        };
+            push(@{$self->tableFields->{$self->currentTableName}}, $field);
+        }
+    }
+    sub getHeader {
+	my $self = shift;
+	my $header = <<END;
+<?xml version="1.0" encoding="UTF-8"?>
+<dia:diagram xmlns:dia="http://www.lysator.liu.se/~alla/dia/">
+  <dia:diagramdata>
+    <dia:attribute name="background">
+      <dia:color val="#ffffff"/>
+    </dia:attribute>
+    <dia:attribute name="paper">
+      <dia:composite type="paper">
+        <dia:attribute name="name">
+          <dia:string>#A4#</dia:string>
+        </dia:attribute>
+        <dia:attribute name="tmargin">
+          <dia:real val="2.8222"/>
+        </dia:attribute>
+        <dia:attribute name="bmargin">
+          <dia:real val="2.8222"/>
+        </dia:attribute>
+        <dia:attribute name="lmargin">
+          <dia:real val="2.8222"/>
+        </dia:attribute>
+        <dia:attribute name="rmargin">
+          <dia:real val="2.8222"/>
+        </dia:attribute>
+        <dia:attribute name="is_portrait">
+          <dia:boolean val="true"/>
+        </dia:attribute>
+        <dia:attribute name="scaling">
+          <dia:real val="1"/>
+        </dia:attribute>
+        <dia:attribute name="fitto">
+          <dia:boolean val="false"/>
+        </dia:attribute>
+      </dia:composite>
+    </dia:attribute>
+    <dia:attribute name="grid">
+      <dia:composite type="grid">
+        <dia:attribute name="width_x">
+          <dia:real val="1"/>
+        </dia:attribute>
+        <dia:attribute name="width_y">
+          <dia:real val="1"/>
+        </dia:attribute>
+        <dia:attribute name="visible_x">
+          <dia:int val="1"/>
+        </dia:attribute>
+        <dia:attribute name="visible_y">
+          <dia:int val="1"/>
+        </dia:attribute>
+      </dia:composite>
+    </dia:attribute>
+    <dia:attribute name="guides">
+      <dia:composite type="guides">
+        <dia:attribute name="hguides"/>
+        <dia:attribute name="vguides"/>
+      </dia:composite>
+    </dia:attribute>
+  </dia:diagramdata>
+  <dia:layer name="Segundo Plano" visible="true">
+END
+	return $header;
+    }
+    sub getFooter {
+	my $self = shift;
+	my $footer = <<END;
+  </dia:layer>
+</dia:diagram>
+END
+	return $footer;
+    }
+    sub getObjHeader {
+	my $self = shift;
+	my $nome = shift;
+
+        my $x1 = $self->x1;
+        my $x2 = $self->x2;
+        my $x3 = $self->x3;
+        my $y1 = $self->y1;
+        my $y2 = $self->y2;
+        my $y3 = $self->y3;
+        my $width = $self->width;
+        my $height = $self->height;
+
+	my $header = <<END;
+    <dia:object type="UML - Class" version="0" id="O0">
+      <dia:attribute name="obj_pos">
+        <dia:point val="$x1,$y1"/>
+      </dia:attribute>
+      <dia:attribute name="obj_bb">
+        <dia:rectangle val="$x2,$y2;$x3,$y3"/>
+      </dia:attribute>
+      <dia:attribute name="elem_corner">
+        <dia:point val="$x1,$y1"/>
+      </dia:attribute>
+      <dia:attribute name="elem_width">
+        <dia:real val="$width"/>
+      </dia:attribute>
+      <dia:attribute name="elem_height">
+        <dia:real val="$height"/>
+      </dia:attribute>
+      <dia:attribute name="name">
+        <dia:string>#$nome#</dia:string>
+      </dia:attribute>
+      <dia:attribute name="stereotype">
+        <dia:string/>
+      </dia:attribute>
+      <dia:attribute name="abstract">
+        <dia:boolean val="false"/>
+      </dia:attribute>
+      <dia:attribute name="suppress_attributes">
+        <dia:boolean val="false"/>
+      </dia:attribute>
+      <dia:attribute name="suppress_operations">
+        <dia:boolean val="false"/>
+      </dia:attribute>
+      <dia:attribute name="visible_attributes">
+        <dia:boolean val="true"/>
+      </dia:attribute>
+      <dia:attribute name="visible_operations">
+        <dia:boolean val="true"/>
+      </dia:attribute>
+      <dia:attribute name="foreground_color">
+        <dia:color val="#000000"/>
+      </dia:attribute>
+      <dia:attribute name="background_color">
+        <dia:color val="#ffffff"/>
+      </dia:attribute>
+      <dia:attribute name="normal_font">
+        <dia:font name="Courier"/>
+      </dia:attribute>
+      <dia:attribute name="abstract_font">
+        <dia:font name="Courier-Oblique"/>
+      </dia:attribute>
+      <dia:attribute name="classname_font">
+        <dia:font name="Helvetica-Bold"/>
+      </dia:attribute>
+      <dia:attribute name="abstract_classname_font">
+        <dia:font name="Helvetica-BoldOblique"/>
+      </dia:attribute>
+      <dia:attribute name="font_height">
+        <dia:real val="0.8"/>
+      </dia:attribute>
+      <dia:attribute name="abstract_font_height">
+        <dia:real val="0.8"/>
+      </dia:attribute>
+      <dia:attribute name="classname_font_height">
+        <dia:real val="1"/>
+      </dia:attribute>
+      <dia:attribute name="abstract_classname_font_height">
+        <dia:real val="1"/>
+      </dia:attribute>
+      <dia:attribute name="attributes">
+END
+	$self->calcPosition();
+	return $header;
+    }
+    sub getObjFooter {
+	my $self = shift;
+	my $footer = <<END;
+      </dia:attribute>
+      <dia:attribute name="operations"/>
+      <dia:attribute name="template">
+        <dia:boolean val="false"/>
+      </dia:attribute>
+      <dia:attribute name="templates"/>
+    </dia:object>
+END
+	return $footer;
+    }
+    sub getAttrib {
+	my $self = shift;
+	my ($nome,$tipo) = @_;
+	my $attr = <<END;
+        <dia:composite type="umlattribute">
+          <dia:attribute name="name">
+            <dia:string>#$nome#</dia:string>
+          </dia:attribute>
+          <dia:attribute name="type">
+            <dia:string>#$tipo#</dia:string>
+          </dia:attribute>
+          <dia:attribute name="value">
+            <dia:string/>
+          </dia:attribute>
+          <dia:attribute name="visibility">
+            <dia:enum val="0"/>
+          </dia:attribute>
+          <dia:attribute name="abstract">
+            <dia:boolean val="false"/>
+          </dia:attribute>
+          <dia:attribute name="class_scope">
+            <dia:boolean val="false"/>
+          </dia:attribute>
+        </dia:composite>
+END
+	return $attr;
+    }
+    INIT {
+        has 'left' => (is => 'rw');
+        has 'top' => (is => 'rw');
+        has 'x1' => (is => 'rw');
+        has 'y1' => (is => 'rw');
+        has 'x2' => (is => 'rw');
+        has 'y2' => (is => 'rw');
+        has 'x3' => (is => 'rw');
+        has 'y3' => (is => 'rw');
+        has 'width' => (is => 'rw');
+        has 'height' => (is => 'rw');
+        has 'xinc' => (is => 'rw');
+        has 'yinc' => (is => 'rw');
+    }
+    sub initPosition {
+        my $self = shift;
+        $self->left(1.0);
+        $self->top(5.0);
+        $self->x1($self->left);
+        $self->y1($self->top);
+        $self->x2($self->x1 - 0.05);
+        $self->y2($self->y1 - 0.05);
+        $self->width(12);
+        $self->height(30);
+        $self->x3($self->x2 + $self->width + 0.1);
+        $self->y3($self->y2 + $self->height + 0.1);
+        $self->xinc(15);
+        $self->yinc(40);
+    }
+    sub calcPosition {
+	my $self = shift;
+        $self->x1($self->x1 + $self->xinc);
+        $self->x2($self->x2 + $self->xinc);
+        $self->x3($self->x3 + $self->xinc);
+        if ($self->x1 > ($self->left + 10 * $self->xinc)) {
+            $self->x1($self->left);
+            $self->x2($self->x1 - 0.05);
+            $self->x3($self->x2 + $self->width + 0.1);
+            $self->y1($self->y1 + $self->yinc);
+            $self->y2($self->y2 + $self->yinc);
+            $self->y3($self->y3 + $self->yinc);
+        }
+    }
+    sub generateXML {
+        my ($self) = @_;
+        my $xml = '';
+        $self->initPosition();
+        $xml .= $self->getHeader();
+        foreach my $tableName (@{$self->tableNames}) {
+            $xml .= $self->getObjHeader($tableName);
+            foreach my $field (@{$self->tableFields->{$tableName}}) {
+                my $fieldName = $field->{name};
+                my $fieldType = $field->{type};
+                $xml .= $self->getAttrib($fieldName, $fieldType);
+            }
+            $xml .= $self->getObjFooter();
+        }
+        $xml .= $self->getFooter();
+        return $xml;
+    }
+};
+
+package Dia::Parse::MySQLDump {
+    use Moo;
+    INIT {
+        has tableName => (is => 'rw');
+        has generator => (is => 'rw');
+    }
+    sub parse {
+        my ($self, $line) = @_;
+        $line =~ s{\R\z}{};
+        if ($line =~ m{^CREATE\s+TABLE\s+`(.*?)`\s+\(\s*$}) {
+            my $tableName = $1;
+            $self->tableName($tableName);
+            $self->generator->startTable($tableName);
+            return;
+        }
+        if (defined $self->tableName) {
+            if (m{^\)\s*$}) {
+                $self->generator->endTable();
+                return;
+            }
+            if (m{^  `(.*?)`\s+(\S+)}) {
+                my $fieldName = $1;
+                my $fieldType = $2;
+                $self->generator->addField($fieldName, $fieldType);
+                return;
+            }
+        }
+    }
+    sub eof {
+        my ($self) = @_;
+    }
+}
