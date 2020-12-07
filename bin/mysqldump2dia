@@ -424,4 +424,4 @@ package Dia::Parse::MySQLDump {
     sub eof {
         my ($self) = @_;
     }
-}
+};
