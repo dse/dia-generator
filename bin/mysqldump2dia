@@ -3,9 +3,10 @@ use warnings;
 use strict;
 use v5.10.0;
 
-use GenDia;
+# use GenDia;
 
 my $generator = Dia::Generator->new();
+$generator->excludeFields([qw(created_by last_edited_by created_at updated_at)]);
 $generator->parseMySQLDump();
 while (<>) {
     $generator->parse($_);
@@ -28,6 +29,7 @@ package Dia::Generator {
         has 'currentFieldIndex' => (is => 'rw');
         has 'objectIdCounter' => (is => 'rw', default => 0);
         has 'tableObjectId'   => (is => 'rw', default => sub { return {}; });
+        has 'excludeFields' => (is => 'rw', default => sub { return []; });
 
         # positioning
         has 'left' => (is => 'rw');
@@ -91,6 +93,7 @@ package Dia::Generator {
         if (!$tableName) {
             return;
         }
+        return if $self->excludes($tableName, $fieldName);
         my $index = $self->currentFieldIndex;
         my $field = {
                      name => $fieldName,
@@ -113,6 +116,8 @@ package Dia::Generator {
             warn("not adding reference\n");
             return;
         }
+        return if $self->excludes($tableName, $foreignKey);
+        return if $self->excludes($referencesTableName, $referencesFieldName);
         $self->referenceHash->{$tableName} //= {};
         my $hash = {
                     tableName => $tableName,
@@ -134,7 +139,7 @@ package Dia::Generator {
       <dia:color val="#ffffff"/>
     </dia:attribute>
     <dia:attribute name="pagebreak">
-      <dia:color val="#000099"/>
+      <dia:color val="#eeeeee"/>
     </dia:attribute>
     <dia:attribute name="paper">
       <dia:composite type="paper">
@@ -384,6 +389,9 @@ END
         my $referencesTableName = $args{referencesTableName};
         my $referencesFieldName = $args{referencesFieldName};
 
+        return if $self->excludes($tableName, $foreignKey);
+        return if $self->excludes($referencesTableName, $referencesFieldName);
+
         my $obj_pos = '13.435,6.9';
         my $obj_bb = '13.435,6.25;16,7.7';
         my $orth_point_0 = '13.435,6.9';
@@ -452,10 +460,10 @@ END
         <dia:real val="0.5"/>
       </dia:attribute>
       <dia:attribute name="start_point_desc">
-        <dia:string>#1#</dia:string>
+        <dia:string>#n#</dia:string>
       </dia:attribute>
       <dia:attribute name="end_point_desc">
-        <dia:string>#n#</dia:string>
+        <dia:string>#1#</dia:string>
       </dia:attribute>
       <dia:attribute name="normal_font">
         <dia:font family="monospace" style="0" name="Courier"/>
@@ -563,6 +571,10 @@ END
         }
         $xml .= $self->getFooter();
         return $xml;
+    }
+    sub excludes {
+        my ($self, $table, $field) = @_;
+        return grep { $_ eq $field } @{$self->excludeFields()};
     }
 };
 
