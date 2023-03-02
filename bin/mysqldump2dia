@@ -2,8 +2,14 @@
 use warnings;
 use strict;
 use v5.10.0;
-
+use open qw(:locale);
+use Data::Dumper;
+use Carp::Always;
 # use GenDia;
+
+# filenames used for input must contain \.
+my @tableNames = grep { !/\./ } @ARGV;
+@ARGV = grep { m/\./ } @ARGV;
 
 my $generator = Dia::Generator->new();
 $generator->excludeFields([qw(created_by last_edited_by created_at updated_at)]);
@@ -11,14 +17,13 @@ $generator->parseMySQLDump();
 while (<>) {
     $generator->parse($_);
 }
-
-print $generator->generateXML();
+print $generator->generateXML(@tableNames);
 
 package Dia::Generator {
+    use Data::Dumper;
     use Moo;
     INIT {
         has 'parser' => (is => 'rw');
-
         has 'tableNames'  => (is => 'rw', default => sub { return []; });
         has 'tableNameHash' => (is => 'rw', default => sub { return {}; });
         has 'tableFields' => (is => 'rw', default => sub { return {}; });
@@ -30,6 +35,7 @@ package Dia::Generator {
         has 'objectIdCounter' => (is => 'rw', default => 0);
         has 'tableObjectId'   => (is => 'rw', default => sub { return {}; });
         has 'excludeFields' => (is => 'rw', default => sub { return []; });
+        has 'includeTableNames' => (is => 'rw', default => sub { return {}; });
 
         # positioning
         has 'left' => (is => 'rw');
@@ -105,7 +111,7 @@ package Dia::Generator {
         $self->currentFieldIndex($index + 1);
     }
     sub addReference {
-        warn("addReference\n");
+        print STDERR ("addReference\n");
         my ($self, %args) = @_;
         my $constraintName = $args{constraintName};
         my $foreignKey = $args{foreignKey};
@@ -389,8 +395,13 @@ END
         my $referencesTableName = $args{referencesTableName};
         my $referencesFieldName = $args{referencesFieldName};
 
+        return if defined $tableName           && !$self->includeTableNames->{$tableName};
+        return if defined $referencesTableName && !$self->includeTableNames->{$referencesTableName};
+
         return if $self->excludes($tableName, $foreignKey);
         return if $self->excludes($referencesTableName, $referencesFieldName);
+
+        printf STDERR ("%s\n", "wheeeee!");
 
         my $obj_pos = '13.435,6.9';
         my $obj_bb = '13.435,6.25;16,7.7';
@@ -553,11 +564,16 @@ END
         return ($x1, $y1, $x2, $y2, $x3, $y3);
     }
     sub generateXML {
-        my ($self) = @_;
+        my ($self, @tableNames) = @_;
+        if (!scalar @tableNames) {
+            @tableNames = @{$self->tableNames};
+        }
+        my %tableNames = map { ($_ => 1) } @tableNames;
+        $self->includeTableNames(\%tableNames);
         my $xml = '';
         $self->initPosition();
         $xml .= $self->getHeader();
-        foreach my $tableName (@{$self->tableNames}) {
+        foreach my $tableName (@tableNames) {
             $xml .= $self->getObjHeader($tableName);
             foreach my $field (@{$self->tableFields->{$tableName}}) {
                 my $fieldName = $field->{name};
@@ -567,7 +583,9 @@ END
             $xml .= $self->getObjFooter();
         }
         foreach my $reference (@{$self->references}) {
-            $xml .= $self->generateReferenceXML(%$reference);
+            print STDERR (Dumper($reference));
+            my $refXml = $self->generateReferenceXML(%$reference);
+            $xml .= $refXml if defined $refXml;
         }
         $xml .= $self->getFooter();
         return $xml;
