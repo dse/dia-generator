@@ -111,7 +111,7 @@ package Dia::Generator {
         $self->currentFieldIndex($index + 1);
     }
     sub addReference {
-        print STDERR ("addReference\n");
+        # print STDERR ("addReference\n");
         my ($self, %args) = @_;
         my $constraintName = $args{constraintName};
         my $foreignKey = $args{foreignKey};
@@ -401,7 +401,7 @@ END
         return if $self->excludes($tableName, $foreignKey);
         return if $self->excludes($referencesTableName, $referencesFieldName);
 
-        printf STDERR ("%s\n", "wheeeee!");
+        # printf STDERR ("%s\n", "wheeeee!");
 
         my $obj_pos = '13.435,6.9';
         my $obj_bb = '13.435,6.25;16,7.7';
@@ -583,7 +583,7 @@ END
             $xml .= $self->getObjFooter();
         }
         foreach my $reference (@{$self->references}) {
-            print STDERR (Dumper($reference));
+            # print STDERR (Dumper($reference));
             my $refXml = $self->generateReferenceXML(%$reference);
             $xml .= $refXml if defined $refXml;
         }
