@@ -459,7 +459,7 @@ END
         <dia:real val="1"/>
       </dia:attribute>
       <dia:attribute name="corner_radius">
-        <dia:real val="0"/>
+        <dia:real val="0.5"/>
       </dia:attribute>
       <dia:attribute name="end_arrow">
         <dia:enum val="22"/>
